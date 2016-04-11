@@ -1,0 +1,115 @@
+#!/usr/bin/env python
+# coding=utf-8
+import csv
+import math 
+import numpy as np
+import pandas as pd
+from sklearn.linear_model import LogisticRegression
+oridata=pd.read_csv('tianchi_fresh_comp_train_user.csv',header=0)
+userId=[]
+itemId=[]
+behaviorType=[]
+Day=[]
+for i in range(len(oridata[:200000])):
+    time=oridata['time'][i]
+    day=int(time[5:7]+time[8:10])
+    if day >=1216 and day<=1218:
+        userId.append(oridata['user_id'][i])
+        itemId.append(oridata['item_id'][i])
+        behaviorType.append(oridata['behavior_type'][i])
+        Day.append(int(time[8:10]))
+
+datafile=open('data.csv','wb')
+
+open_file_object=csv.writer(datafile)
+open_file_object.writerow(['user_id','item_id','behavior_type','day'])
+open_file_object.writerows(zip(userId,itemId,behaviorType,Day))
+datafile.close()
+
+f=open('./data.csv')
+context=f.readlines()
+train_day17=[]
+offline_candidate_day18=[]
+online_candidate_day19=[]
+for line in context:
+    line=line.replace('\n','')
+    array=line.split(',')
+    if array[0]=='user_id':
+        continue
+    day=int(array[-1])
+    uid=(array[0],array[1],day+1)
+    if day==16:
+        train_day17.append(uid)
+    if day==17:
+        offline_candidate_day18.append(uid)
+    if day==18:
+        online_candidate_day19.append(uid)
+    train_day17=list(set(train_day17))
+    offline_candidate_day18=list(set(offline_candidate_day18))
+    online_candidate_day19=list(set(online_candidate_day19))
+
+#print 'training item number:',len(train_day17)
+ui_dict=[{} for i in range(4)]
+for line in context:
+    line=line.replace('\n','')
+    array=line.split(',')
+    if array[0]=='user_id':
+        continue
+    day=int(array[-1])
+    uid=(array[0],array[1],day)
+    type=int(array[2])-1
+    if uid in ui_dict[type]:
+        ui_dict[type][uid]+=1
+    else:
+        ui_dict[type][uid]=1
+
+
+ui_buy={}
+for line in context:
+    line=line.replace('\n','')
+    array=line.split(',')
+    if array[0]=='user_id':
+        continue
+    day=int(array[-1])
+    uid=(array[0],array[1],day)
+    if array[2]=='4':
+        ui_buy[uid]=1
+
+#get train X,y
+X=np.zeros((len(train_day17),4))
+y=np.zeros((len(train_day17)),)
+id=0
+for uid in train_day17:
+    last_uid=(uid[0],uid[1],uid[2]-1)
+    for i in range(4):
+        X[id][i]=math.log1p(ui_dict[i][last_uid] if last_uid in ui_dict[i] else 0)
+    y[id]  =1 if uid in ui_buy else 0
+    id+=1
+     
+model=LogisticRegression()
+model.fit(X,y)
+
+pX=np.zeros((len(offline_candidate_day18),4))
+id=0
+for uid in offline_candidate_day18:
+    last_uid=(uid[0],uid[1],uid[2]-1)
+    for i in range(4):
+        pX[id][i]=math.log1p(ui_dict[i][last_uid] if last_uid in ui_dict[i] else 0)
+    id+=1
+
+
+py=model.predict_proba(pX)
+npy=[]
+for a in py:
+    npy.append(a[1])
+py=npy
+
+lx=zip(offline_candidate_day18,py)
+lx=sorted(lx,key=lambda x: x[1],reverse=True)
+
+wf=open('answer.csv','w')
+wf.write('user_id,item_id\n')
+for i in range(500):
+    item=lx[i]
+    wf.write("%s,%s\n"%(item[0][0],item[0][1]))
+print 'done.'
